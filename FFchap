@@ -7,8 +7,11 @@ SECONDS=0
 # Default Black Detect Duration in Seconds
 value=".5"
 
-# Minimum Chapter Length in Seconds (chapters shorter than this are dropped)
+
+# Minimum gap between chapters in seconds
 Min_Chap=60
+# Minimum distance from end of file for a chapter to be created
+End_Threshold=60
 
 # Default detection method: black | silence | scene
 method="black"
@@ -151,7 +154,7 @@ Chapter_Gen() {
         black)
             printf "%b" "${green}Detecting black frames (threshold: ${value}s)........Wait${invis}"
             ffmpeg -i "${filename}" \
-                -vf "blackdetect=d=${value}:pix_th=0.1:pic_th=0.98" \
+                -vf "blackdetect=d=${value}:pix_th=0.1:pic_th=0.95" \
                 -an -f null - 2>&1 \
                 | grep -Pio '(?<=black_end:)[0-9.]+(?= black_duration)' \
                 > "$times_raw" &
@@ -167,7 +170,7 @@ Chapter_Gen() {
         scene)
             printf "%b" "${green}Detecting scene changes........Wait${invis}"
             ffmpeg -v info \
-                -f lavfi -i "movie=${filename},scdet=s=1:t=14" \
+                -f lavfi -i "movie=${filename},scdet=s=1:t=20" \
                 -f null - 2>&1 \
                 | grep -Pio '(?<=lavfi.scd.time: )[0-9.]+' \
                 > "$times_raw" &
@@ -182,22 +185,24 @@ Chapter_Gen() {
         exit 1
     fi
 
-    # Filter: drop chapters shorter than Min_Chap seconds
-    mapfile -t float < "$times_raw"
-    local prev=0
-
-    for ts in "${float[@]}"; do
-        local gap
-        gap=$(bc <<< "${ts} - ${prev}")
-        if (( ${gap%.*} >= Min_Chap )); then
-            printf "%s\n" "$ts" >> "$times_filtered"
-            prev="$ts"
-        fi
-    done
-
+    # Filter: drop chapters shorter than Min_Chap seconds apart (if Min_Chap > 0)
+    if (( Min_Chap > 0 )); then
+        mapfile -t float < "$times_raw"
+        local prev=0
+        > "$times_filtered"
+        for ts in "${float[@]}"; do
+            local gap
+            gap=$(bc <<< "${ts} - ${prev}")
+            if (( ${gap%.*} >= Min_Chap )); then
+                printf "%s\n" "$ts" >> "$times_filtered"
+                prev="$ts"
+            fi
+        done
+    else
+        cp "$times_raw" "$times_filtered"
+    fi
     if [[ ! -s "$times_filtered" ]]; then
-        printf "%b\n" "${orange}All detected events were shorter than Min_Chap (${Min_Chap}s). No chapters added.${reset}"
-        printf "%b\n" "${orange}Try lowering Min_Chap or using a different detection method.${reset}"
+        printf "%b\n" "${orange}No detection events found after Min_Chap filtering. Try lowering Min_Chap or using a different detection method.${reset}"
         exit 1
     fi
 
@@ -207,15 +212,16 @@ Chapter_Gen() {
         -of default=noprint_wrappers=1:nokey=1 "${filename}")
 
     # Build chapter timestamp file (chapter 1 always starts at 00:00:00)
-    # Skip any timestamp within Min_Chap seconds of the end (detection artifact)
+    # Skip any timestamp within End_Threshold seconds of the end (detection artifact)
     printf "00:00:00.000\n" > "$chapters_txt"
     while read -r ts; do
         local gap_to_end
         gap_to_end=$(bc <<< "${duration} - ${ts}")
-        if (( ${gap_to_end%.*} >= Min_Chap )); then
+        # Use End_Threshold, not Min_Chap, for end-of-file filtering
+        if (( $(echo "$gap_to_end >= $End_Threshold" | bc -l) )); then
             Convert_Seconds "$ts" >> "$chapters_txt"
         else
-            printf "%b\n" "${orange}Skipping end-of-video timestamp $(Convert_Seconds "$ts") (only ${gap_to_end%.*}s before end)${reset}"
+            printf "%b\n" "${orange}Skipping end-of-video timestamp $(Convert_Seconds "$ts") (only ${gap_to_end}s before end)${reset}"
         fi
     done < "$times_filtered"
 
