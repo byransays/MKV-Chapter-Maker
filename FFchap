@@ -1,20 +1,22 @@
 #!/bin/bash
 #set -x
 
-# Start Time For Processing Script Elapsed Run Time
-SECONDS=0
 
 # Default Black Detect Duration in Seconds
 value=".5"
 
-
 # Minimum gap between chapters in seconds
 Min_Chap=60
-# Minimum distance from end of file for a chapter to be created
+
+# Never create a chapter within this many seconds of the end of the video (avoids a chapter at end credits)
 End_Threshold=60
 
 # Default detection method: black | silence | scene
 method="black"
+
+
+# Start Time For Processing Script Elapsed Run Time (dont change this)
+SECONDS=0
 
 
 # Text Colors
