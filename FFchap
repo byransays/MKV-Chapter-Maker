@@ -6,7 +6,7 @@
 value=".5"
 
 # Minimum gap between chapters in seconds
-Min_Chap=60
+Min_Chap=40
 
 # Never create a chapter within this many seconds of the end of the video (avoids a chapter at end credits)
 End_Threshold=60
@@ -40,12 +40,18 @@ norm=$(tput cnorm)
 # ── Usage ──────────────────────────────────────────────────────────────────────
 usage() {
     printf "%b\n" "${white}
-Usage:  FFchap [OPTIONS] <file.mkv>
+
+Usage:  FFchap [OPTIONS] <file.mkv | directory>
 
 Options:
-  -s <seconds>   Detect duration threshold  (default: ${value}s)
-  -m <method>    Detection method: black | silence | scene  (default: black)
-  -h             Show this help
+    -s <seconds>     Detect duration threshold  (default: ${value}s)
+    -m <method>      Detection method: black | silence | scene  (default: black)
+    --skipchap       Skip files that already have chapters
+    -h               Show this help
+
+You can pass a single MKV file or a directory containing MKV files as the argument.
+If a directory is given, all .mkv files inside will be processed.
+By default, existing chapters are overwritten. Use --skipchap to skip files that already have chapters.
 
 Detection methods:
   black    Detect black frames  (best for commercial-stripped TV shows)
@@ -62,32 +68,58 @@ ${reset}"
 }
 
 # ── Option Parsing ─────────────────────────────────────────────────────────────
-while getopts ":s:m:h" opt; do
-    case $opt in
-        s) value="$OPTARG" ;;
-        m) method="$OPTARG" ;;
-        h) usage ;;
-        \?) printf "%b\n" "${red}Invalid option: -$OPTARG${reset}" >&2; exit 1 ;;
-        :)  printf "%b\n" "${red}Option -$OPTARG requires an argument.${reset}" >&2; exit 1 ;;
+
+skipchap=0
+
+# Parse long options manually
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --skipchap)
+            skipchap=1
+            shift
+            ;;
+        -s)
+            value="$2"; shift 2
+            ;;
+        -m)
+            method="$2"; shift 2
+            ;;
+        -h)
+            usage
+            ;;
+        --)
+            shift; break
+            ;;
+        -*)
+            printf "%b\n" "${red}Invalid option: $1${reset}" >&2; exit 1
+            ;;
+        *)
+            break
+            ;;
     esac
 done
-shift "$((OPTIND - 1))"
 
-filename="$1"
+input_path="$1"
+shift
 
 # ── Input Validation ───────────────────────────────────────────────────────────
-if [[ -z "$filename" ]]; then
-    printf "%b\n" "${red}Error: no input file specified.${reset}" >&2
+
+if [[ -z "$input_path" ]]; then
+    printf "%b\n" "${red}Error: no input file or directory specified.${reset}" >&2
     usage
 fi
 
-if [[ ! -f "$filename" ]]; then
-    printf "%b\n" "${red}Error: file not found: ${filename}${reset}" >&2
+if [[ -d "$input_path" ]]; then
+    file_list=("$input_path"/*.mkv)
+    if [[ ! -e "${file_list[0]}" ]]; then
+        printf "%b\n" "${red}No MKV files found in directory: ${input_path}${reset}" >&2
+        exit 1
+    fi
+elif [[ -f "$input_path" ]]; then
+    file_list=("$input_path")
+else
+    printf "%b\n" "${red}Error: file or directory not found: ${input_path}${reset}" >&2
     exit 1
-fi
-
-if [[ "${filename,,}" != *.mkv ]]; then
-    printf "%b\n" "${orange}Warning: file does not appear to be an MKV. mkvpropedit may fail.${reset}"
 fi
 
 if [[ "$method" != "black" && "$method" != "silence" && "$method" != "scene" ]]; then
@@ -150,13 +182,15 @@ Spinner() {
 
 # ── Chapter Generation ────────────────────────────────────────────────────────
 Chapter_Gen() {
+
     printf "%b\n" "${pink}${filename##*/}${reset}"
+    > "$chapters_final"  # Clear chapter file for each new file
 
     case "$method" in
         black)
             printf "%b" "${green}Detecting black frames (threshold: ${value}s)........Wait${invis}"
             ffmpeg -i "${filename}" \
-                -vf "blackdetect=d=${value}:pix_th=0.1:pic_th=0.95" \
+                -vf "blackdetect=d=${value}:pix_th=0.05:pic_th=0.99" \
                 -an -f null - 2>&1 \
                 | grep -Pio '(?<=black_end:)[0-9.]+(?= black_duration)' \
                 > "$times_raw" &
@@ -258,5 +292,21 @@ Chapter_Gen() {
 }
 
 # ── Main ──────────────────────────────────────────────────────────────────────
+
 Dep_Check
-Chapter_Gen
+
+# Loop over files
+total_files=${#file_list[@]}
+for ((idx=0; idx<total_files; idx++)); do
+    filename="${file_list[$idx]}"
+    printf "%b\n" "${yellow}File $((idx+1)) of ${total_files}${reset}"
+    if (( skipchap )); then
+        # Check for existing chapters using mkvinfo (look for Chapter atom)
+        chapter_count=$(mkvinfo "$filename" 2>/dev/null | grep -c '^|  + Chapter atom')
+        if (( chapter_count > 0 )); then
+            printf "%b\n" "${orange}Skipping ${filename##*/}: chapters already present.${reset}"
+            continue
+        fi
+    fi
+    Chapter_Gen
+done
