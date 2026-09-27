@@ -218,7 +218,7 @@ Chapter_Gen() {
 
     if [[ ! -s "$times_raw" ]]; then
         printf "%b\n" "${red}No detection events found. Try a smaller -s value or a different -m method.${reset}" >&2
-        exit 1
+        return 1
     fi
 
     # Filter: drop chapters shorter than Min_Chap seconds apart (if Min_Chap > 0)
@@ -248,7 +248,7 @@ Chapter_Gen() {
     fi
     if [[ ! -s "$times_filtered" ]]; then
         printf "%b\n" "${orange}No detection events found after Min_Chap filtering. Try lowering Min_Chap or using a different detection method.${reset}"
-        exit 1
+        return 1
     fi
 
     # Get video duration so we can exclude chapters too close to the end
@@ -275,7 +275,7 @@ Chapter_Gen() {
     total=$(wc -l < "$chapters_txt")
     if (( total < 2 )); then
         printf "%b\n" "${orange}No chapters remain after filtering. All events were too close to the end of the video.${reset}"
-        exit 1
+        return 1
     fi
 
     # Format as OGM chapter file
