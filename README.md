@@ -17,6 +17,7 @@ You can pass a single MKV file or a directory containing MKV files as the argume
 ### Options
 
   -s <seconds>     Detect duration threshold  (default: .5s)
+  -r               Recursively scans folders.
   -m <method>      Detection method: black | silence | scene  (default: black)
   --skipchap       Skip files that already have chapters
   -h               Show this help
