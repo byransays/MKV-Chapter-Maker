@@ -16,27 +16,27 @@ You can pass a single MKV file or a directory containing MKV files as the argume
 
 ### Options
 
-  -s <seconds>     Detect duration threshold  (default: .5s)
-  -r               Recursively scans folders.
-  -m <method>      Detection method: black | silence | scene  (default: black)
-  --skipchap       Skip files that already have chapters
-  -h               Show this help
+  -s <seconds>&emsp;&emsp;&emsp;&emsp;     Detect duration threshold  (default: .5s)  
+  -r&emsp;&emsp;&emsp;&emsp;&emsp;               Recursively scans folders.  
+  -m <method>&emsp;&emsp;&emsp;&emsp;      Detection method: black | silence | scene  (default: black)  
+  --skipchap&emsp;&emsp;       Skip files that already have chapters  
+  -h&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;               Show this help  
 
-By default, existing chapters are overwritten. Use --skipchap to skip files that already have chapters.
+By default, existing chapters are overwritten. Use --skipchap to skip files that already have chapters.  
 
 ### Examples
 
-Default (uses blackdetect, 0.5s):
-   FFchap "Show - S01E01.mkv"
-
-Custom blackdetect value:
-   FFchap -s 1.5 "Show - S01E01.mkv"
-
+Default (uses blackdetect, 0.5s):  
+   FFchap "Show - S01E01.mkv"  
+   
+Custom blackdetect value:  
+   FFchap -s 1.5 "Show - S01E01.mkv"  
+   
 Process all MKVs in a directory, skipping files with chapters:
    FFchap --skipchap /path/to/dir
+   
+mkvpropedit & ffmpeg are required.  
 
-mkvpropedit & ffmpeg are required.
-
-Target files are NOT re-encoded and mkvpropedit is instantaneous.
+Target files are NOT re-encoded and mkvpropedit is instantaneous.  
 720p files are processed reasonably quick (<1 min), 1080p is noticeably longer.
 
