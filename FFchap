@@ -1,7 +1,6 @@
 #!/bin/bash
 #set -x
 
-
 # Default Black Detect Duration in Seconds
 value=".5"
 
@@ -14,10 +13,8 @@ End_Threshold=60
 # Default detection method: black | silence | scene
 method="black"
 
-
 # Start Time For Processing Script Elapsed Run Time (dont change this)
 SECONDS=0
-
 
 # Text Colors
 BoRed=$(tput bold; tput setaf 1)
@@ -46,11 +43,11 @@ Usage:  FFchap [OPTIONS] <file.mkv | directory>
 Options:
     -s <seconds>     Detect duration threshold  (default: ${value}s)
     -m <method>      Detection method: black | silence | scene  (default: black)
+    -r, --recursive  Recursively scan subdirectories for MKV files
     --skipchap       Skip files that already have chapters
     -h               Show this help
 
 You can pass a single MKV file or a directory containing MKV files as the argument.
-If a directory is given, all .mkv files inside will be processed.
 By default, existing chapters are overwritten. Use --skipchap to skip files that already have chapters.
 
 Detection methods:
@@ -60,9 +57,8 @@ Detection methods:
 
 Examples:
   FFchap \"Show - S01E01.mkv\"
-  FFchap -s 1.5 \"Show - S01E01.mkv\"
-  FFchap -m silence -s 1.0 \"Show - S01E01.mkv\"
-  FFchap -m scene \"Show - S01E01.mkv\"
+  FFchap -r /path/to/media/dir
+  FFchap -r --skipchap -m silence -s 1.0 /path/to/media/dir
 ${reset}"
     exit 0
 }
@@ -70,13 +66,16 @@ ${reset}"
 # ── Option Parsing ─────────────────────────────────────────────────────────────
 
 skipchap=0
+recursive=0
 
 # Parse long options manually
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --skipchap)
-            skipchap=1
-            shift
+            skipchap=1; shift
+            ;;
+        -r|--recursive)
+            recursive=1; shift
             ;;
         -s)
             value="$2"; shift 2
@@ -110,7 +109,16 @@ if [[ -z "$input_path" ]]; then
 fi
 
 if [[ -d "$input_path" ]]; then
-    file_list=("$input_path"/*.mkv)
+    if (( recursive )); then
+        # Enable recursive globbing (**) in Bash
+        shopt -s globstar
+        file_list=("$input_path"/**/*.mkv)
+        shopt -u globstar # Restore default matching behavior
+    else
+        # Standard non-recursive flat scan
+        file_list=("$input_path"/*.mkv)
+    fi
+
     if [[ ! -e "${file_list[0]}" ]]; then
         printf "%b\n" "${red}No MKV files found in directory: ${input_path}${reset}" >&2
         exit 1
@@ -227,13 +235,11 @@ Chapter_Gen() {
         local prev=0
         > "$times_filtered"
         for ts in "${float[@]}"; do
-            # Skip empty lines
             [[ -z "$ts" ]] && continue
-
             local gap
             gap=$(bc <<< "${ts} - ${prev}")
             
-            # Extract integer part, and convert a leading dot (e.g. .5) or empty string to 0
+            # Extract integer part, converting empty or isolated dots/symbols safely to 0
             local gap_int="${gap%.*}"
             gap_int="${gap_int:-0}"
             [[ "$gap_int" == "" || "$gap_int" == "-" ]] && gap_int="0"
@@ -246,6 +252,7 @@ Chapter_Gen() {
     else
         cp "$times_raw" "$times_filtered"
     fi
+
     if [[ ! -s "$times_filtered" ]]; then
         printf "%b\n" "${orange}No detection events found after Min_Chap filtering. Try lowering Min_Chap or using a different detection method.${reset}"
         return 1
@@ -307,19 +314,22 @@ Dep_Check
 # Loop over files
 total_files=${#file_list[@]}
 for ((idx=0; idx<total_files; idx++)); do
-    filename="${file_list[$idx]}"
-    printf "%b\n" "${yellow}File $((idx+1)) of ${total_files}${reset}"
-    
-    # Check if --skipchap is active
-    if (( skipchap )); then
-        # Check if the file contains any chapters using ffprobe
-        has_chapters=$(ffprobe -v error -show_entries chapter=id -of default=noprint_wrappers=1:nokey=1 "${filename}")
-        
-        if [[ -n "$has_chapters" ]]; then
-            printf "%b\n" "${orange}Skipping ${filename##*/}: Chapters already present.${reset}"
-            continue
-        fi
-    fi
-    
-    Chapter_Gen
+filename="${file_list[$idx]}"
+printf "%b\n" "${yellow}File $((idx+1)) of ${total_files}${reset}"
+
+if (( skipchap )); then
+# Check if the file has any chapters using ffprobe
+has_chapters=$(ffprobe -v error -show_entries chapter=id \
+-of default=noprint_wrappers=1:nokey=1 "${filename}" 2>/dev/null)
+if [[ -n "$has_chapters" ]]; then
+printf "%b\n" "${orange}Skipping ${filename##*/}: chapters already present.${reset}\n"
+continue
+fi
+fi
+
+# Run creation logic and bypass broken videos to next file loop if it returns 1
+if ! Chapter_Gen; then
+printf "%b\n" "${red}Failed to process: ${filename##*/}. Moving to next file...${reset}\n"
+continue
+fi
 done
