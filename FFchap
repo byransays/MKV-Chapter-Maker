@@ -227,9 +227,18 @@ Chapter_Gen() {
         local prev=0
         > "$times_filtered"
         for ts in "${float[@]}"; do
+            # Skip empty lines
+            [[ -z "$ts" ]] && continue
+
             local gap
             gap=$(bc <<< "${ts} - ${prev}")
-            if (( ${gap%.*} >= Min_Chap )); then
+            
+            # Extract integer part, and convert a leading dot (e.g. .5) or empty string to 0
+            local gap_int="${gap%.*}"
+            gap_int="${gap_int:-0}"
+            [[ "$gap_int" == "" || "$gap_int" == "-" ]] && gap_int="0"
+
+            if (( gap_int >= Min_Chap )); then
                 printf "%s\n" "$ts" >> "$times_filtered"
                 prev="$ts"
             fi
@@ -300,13 +309,17 @@ total_files=${#file_list[@]}
 for ((idx=0; idx<total_files; idx++)); do
     filename="${file_list[$idx]}"
     printf "%b\n" "${yellow}File $((idx+1)) of ${total_files}${reset}"
+    
+    # Check if --skipchap is active
     if (( skipchap )); then
-        # Check for existing chapters using mkvinfo (look for Chapter atom)
-        chapter_count=$(mkvinfo "$filename" 2>/dev/null | grep -c '^|  + Chapter atom')
-        if (( chapter_count > 0 )); then
-            printf "%b\n" "${orange}Skipping ${filename##*/}: chapters already present.${reset}"
+        # Check if the file contains any chapters using ffprobe
+        has_chapters=$(ffprobe -v error -show_entries chapter=id -of default=noprint_wrappers=1:nokey=1 "${filename}")
+        
+        if [[ -n "$has_chapters" ]]; then
+            printf "%b\n" "${orange}Skipping ${filename##*/}: Chapters already present.${reset}"
             continue
         fi
     fi
+    
     Chapter_Gen
 done
